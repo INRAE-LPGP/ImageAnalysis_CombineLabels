@@ -1,0 +1,938 @@
+// Macro CombineLabels
+// V1.0 le 01-08-22
+// Written by Violette THERMES, Manon LESAGE - INRAE LPGP
+// Part of the DYNAMO project
+
+/////////////////////// INFOS ////////////////////////////
+// Macro for combining 3D labels from different segmentation runs, as for Cellpose segmentation (with adjusted image resolution and/or diameter parameter)
+//
+// Dependencies :
+// - CLIJ2 plugin for GPU-assisted operations
+// - MorphoLibJ plugin
+// 
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+macro "Combine_Labels- icon:Mask_Comb.png"{
+	
+////////////////////// INITIALISATION ////////////////////////////////////////////////
+saveSettings();
+run("Options...", "iterations=1 black count=1"); // dark background	
+run("Colors...", "foreground=white background=black selection=red"); // colour settings	
+run("Appearance...", " "); // no inversion of LUTs
+run("Close All");
+run("Clear Results");
+run("Close All");
+close("ROI Manager");
+close("ROI Manager3D 4.0.36");
+close("Log");
+setTool("hand");
+
+////////////////////// DEFINING FOLDERS, FILES AND PARAMETERS /////////////////////////
+			
+// Choose input directory containing data
+	DirImages = getDirectory("File of analysis");
+	// Folder containing  *name image*_cp_masks (best resolution Cellpose segmentation with 30px diameter) :
+		DirSM = DirImages + "/Small_Masks/"; 
+		
+	// Folder containing *name image*_RES30_cp_masks (lower resolution Cellpose segmentation with 30 px diameter) :
+		DirLM = DirImages + "/Large_Masks/";
+		
+	// Output folder :
+		File.makeDirectory(DirImages + "/Results-Combine/");
+		RepResultat = DirImages + "/Results-Combine/";
+
+// Define Image resolution and Filtration parameters
+
+Dialog.create("Combine Files");
+Dialog.addMessage("Resolution of images");		
+	// Define image resolution	 	
+		Dialog.addNumber("X (um/pixel)", 5.41); //ResX
+		Dialog.addNumber("Y (um/pixel)", 5.41); //ResY
+		Dialog.addNumber("Z (um/pixel)", 6.0002); //ResZ
+		Dialog.addMessage("Parameters for filtration ");
+		Dialog.addMessage("(! Large60 will not be filtrated !)",9,"#ff0000");				
+		Dialog.addMessage("Image Small", 9);	
+			 	
+	// ******Define first label filters (lower values will be suppressed)*********	
+							 	
+		// VolS = Minimum diameter to keep on CP30 segmentation (best resolution)
+			Dialog.addNumber("Volume", 33510.3216382911); 	//Default = 33510,3216382911 = 40um Equivalent Diameter
+			Dialog.addNumber("Sphericity", 0.45); 			// SpherS -> Default 0.25		
+		 	Dialog.addMessage("Image Large", 9);	
+		 	
+	 	//VolL = Minimum diameter to keep on RESCP30 segmentation (lower resolution) for combination 	
+	 		Dialog.addNumber("Volume", 143793313.7); 		// Default = 143793313.7 = 650um Equivalent Diameter
+			Dialog.addNumber("Sphericity", 0.25); 		//SpherL -> Default 0.05				
+
+Dialog.show();
+ResX = Dialog.getNumber();
+ResY = Dialog.getNumber();
+ResZ = Dialog.getNumber();
+VolS = Dialog.getNumber();
+SpherS = Dialog.getNumber();
+VolL = Dialog.getNumber();
+SpherL = Dialog.getNumber();		
+	
+// Open the log window
+print("\\Clear");
+print("----------[ CALIBRATION PARAMETERS ]---------- ");
+print("---[ Image Resolution ]---: " + ResX + " um" + "--" + ResY + " um" + "--" + ResZ + " um");
+print("---[ Filtration Parameters ]---: "+ " Small Volume min"+ VolS + " Small Sphericity min" + SpherS + "--" + " Small Volume min" + VolL + " Large Sphericity " + SpherL);
+Start= getTime();
+print("----------[ STARTING MACRO ]---------------------- "+getTimeString());
+	
+			// Create a results .xls file (with date, time and min. to avoid duplication).
+//				getDateAndTime(year, month, dayOfWeek, dayOfMonth, hour, minute, second, msec);
+//				Outputfile=File.open(RepResultat+ "/Foll_Diameter__" +"-"+dayOfMonth+"-"+(month+1)+"-"+year+"_"+hour+"-"+minute+".xls");
+//				print(Outputfile,"NameImage \tCalibration X,Y (um/pixel) \tCalibration Z (um/pixel) \tTotal Oocyte number \tOocytes Diameter (um)\t");
+
+////////////////////// BEGINNING OF THE ANALYSES /////////////////////////						
+
+	ListImage = 0;
+	ListImage = getFileList(DirImages);
+	print("Files detected = " + ListImage.length);
+	nbImage = 0;
+
+for (i=0; i < ListImage.length; i++){
+			if((endsWith(ListImage[i], ".tif") || (endsWith(ListImage[i], ".TIF"))) && (!File.exists(RepResultat + File.getNameWithoutExtension(DirImages + ListImage[i])+"_cb_label_filtred.tif"))) {
+				if (filter(i, ListImage[i])) {
+					print(ListImage.length);
+					setBatchMode(true);
+					run("Bio-Formats Windowless Importer", "open=" + DirImages + File.separator + ListImage[i]+" view=Hyperstack stack_order=XYCZT");
+					print("...[ File ]...: "+ListImage[i]);        		
+					NameImagetif=getInfo("image.filename");
+				
+					if(endsWith(NameImagetif, ".tif")) {
+						NameImage=replace(NameImagetif, ".tif", "");
+						}
+					if(endsWith(NameImagetif, ".TIF")){
+						NameImage=replace(NameImagetif, ".TIF", "");
+						}
+				print(".....[ Running ]..: "+NameImage);
+				SizeX = getWidth();
+				SizeY = getHeight();
+				SizeZ = nSlices;
+				saveAs("Tiff", RepResultat + NameImage);
+				close("*");
+				
+// Resize, adjust resolution, filter & LabelBoundary
+		// Image "Small"
+				open(DirSM + NameImage + "_Cp30_cp_masks.tif");
+				run("Size...", "width=SizeX height=SizeY depth=SizeZ interpolation=None");
+				Sub_Mask_Boundary_3D();
+				saveAs("Tiff", RepResultat + "Small-BND.tif");
+				numOpening=1;	// **********
+				opening3D_GPU();
+				saveAs("Tiff", RepResultat + "Small-BND-open.tif");
+				selectWindow("Small-BND-open.tif");
+				close("\\Others");
+				Segmentation_Labelisation3D_GPU();
+				Stack.setXUnit("um");
+				run("Properties...", "channels=1 slices=SizeZ frames=1 pixel_width=ResX pixel_height=ResY voxel_depth=ResZ");				
+				Filtre_Sphericity=SpherS;	//********* Min filter values (See in "DEFINING FOLDERS, FILES AND PARAMETERS" section)************************
+				Filtre_Volume=VolS;			//********* Min filter values (See in "DEFINING FOLDERS, FILES AND PARAMETERS" section)************************
+				Filtration_3D();
+				selectWindow("Stack_Filtre_Conserve_RGB");
+				saveAs("Tiff", RepResultat + "Small&Filtred-RGB.tif");
+				selectWindow("Stack_Filtre_Conserve");
+				replace("Small&Filtred", ".tif", "");
+				saveAs("Tiff", RepResultat + "Small&Filtred.tif");
+				close("TableMesure");
+				close("*");
+				
+				//Opening applied by size classes
+				open(RepResultat + "Small&Filtred.tif");
+				Stack.setXUnit("um");
+				run("Properties...", "channels=1 slices=SizeZ frames=1 pixel_width=ResX pixel_height=ResY voxel_depth=ResZ");
+				Filtre_Sphericity=0;	// *********			
+				Filtre_Volume=4188790.20478639; // ********** Labels < Filtre_Volume will be considered "small" // Default = 4188790.20478639 (Vol) = Equivalent Diameter = 200um	
+				Filtre_Sphericity_2=0;	// *********
+				Filtre_Volume_2=113097335.529233 ; // ********** Labels > Filtre_Volume2 will be considered "large" // Default = 113097335.529233 (Vol) = Equivalent Diameter = 600um
+				
+				//Split image in 3 images : small, med, large, containing corresponding labels to apply opening
+				Split_3D();
+				open(RepResultat+"Stack_Filtre_large.tif");
+				RGB_ToMask();
+				numOpening=6;	// **********
+				opening3D_GPU();
+				saveAs("Tiff", RepResultat + "Stack_Filtre_large-Opening.tif");
+				close("*");
+				
+				open(RepResultat+"Stack_Filtre_med.tif");
+				RGB_ToMask();
+				numOpening=3;	// **********
+				opening3D_GPU();
+				saveAs("Tiff", RepResultat + "Stack_Filtre_med-Opening.tif");
+				close("*");
+				
+				open(RepResultat+"Stack_Filtre_small.tif");		
+				RGB_ToMask();			
+				numOpening=1;	// **********
+				opening3D_GPU();
+				saveAs("Tiff", RepResultat + "Stack_Filtre_small-Opening.tif");		
+				close("*");
+
+				// Reconstruct full image after openings
+				open(RepResultat + "Stack_Filtre_large-Opening.tif");
+				open(RepResultat + "Stack_Filtre_small-Opening.tif");
+				imageCalculator("Add create stack", "Stack_Filtre_large-Opening.tif", "Stack_Filtre_small-Opening.tif");	/// Add IMAGE Large + small
+				ChangeValues_OnStack();
+				replace("Small&Filtred1", ".tif", "");
+				close("\\Others");					
+				saveAs("Tiff", RepResultat + "Small&Filtred1-open-OR1.tif");				
+				close("*");
+				
+				open(RepResultat + "Small&Filtred1-open-OR1.tif");
+				open(RepResultat + "Stack_Filtre_med-Opening.tif");
+				imageCalculator("Add create stack", "Small&Filtred1-open-OR1.tif", "Stack_Filtre_med-Opening.tif");	/// Add IMAGE (large+small) + medium
+				ChangeValues_OnStack();
+				replace("Small&Filtred", ".tif", "");
+				close("\\Others");					
+				saveAs("Tiff", RepResultat + "Small&Filtred-open.tif");		
+				
+				close("TableMesure");
+				close("*");
+				
+		// Image "Large" _RES30_cp_masks
+				open(DirLM + NameImage + "_RES30_cp_masks.tif");
+				run("Size...", "width=SizeX height=SizeY depth=SizeZ interpolation=None");
+				Stack.setXUnit("um");
+				run("Properties...", "channels=1 slices=SizeZ frames=1 pixel_width=ResX pixel_height=ResY voxel_depth=ResZ");
+				Filtre_Sphericity=SpherL;	//********* Min filter values (See in "DEFINING FOLDERS, FILES AND PARAMETERS" section)************************
+				Filtre_Volume=VolL;			//********* Min filter values (See in "DEFINING FOLDERS, FILES AND PARAMETERS" section)************************
+				Filtration_3D();
+				selectWindow("Stack_Filtre_Conserve_RGB");
+				saveAs("Tiff", RepResultat + "Large&Filtred-RGB.tif");
+				Sub_Mask_Boundary_3D();
+				input=getTitle();
+				numOpening=18;	// **********
+				opening3D_GPU();		
+				close("\\Others");		
+				replace("Large&Filtred", ".tif", "");
+				saveAs("Tiff", RepResultat + "Large&Filtred.tif");
+				close("TableMesure");
+				close("*");	
+		
+		// Find over-segmented labels and delete 
+				open(RepResultat + "Large&Filtred.tif");
+				RGB_ToMask();
+				numOpening=26;	// **********
+				opening3D_GPU();
+				saveAs("Tiff", RepResultat+"Large_open.tif");
+				open(RepResultat + "Small&Filtred-open.tif");
+				RGB_ToMask();
+				rename("Small&Filtred8bit");
+				run("Morphological Reconstruction 3D", "marker=Large_open.tif mask=Small&Filtred8bit type=[By Dilation] connectivity=6");
+				rename("Small_internal.tif");
+				replace("Small_internal", ".tif", "");				
+				saveAs("Tiff", RepResultat+"Small_internal.tif");
+				imageCalculator("Subtract create stack","Small&Filtred8bit","Small_internal.tif");
+				ChangeValues_OnStack();
+				saveAs("Tiff", RepResultat+"Small_external.tif");
+				replace("Small_external", ".tif", "");
+				close("*");
+				
+		// Trim Large labels for correct separation from closest small labels
+				open(RepResultat + "Small_external.tif");
+				RGB_ToMask();
+				numDilations=3;	// **********
+				dilate3D_GPU();	
+				saveAs("Tiff", RepResultat+"Temp.tif");				
+				open(RepResultat + "Large&Filtred.tif");
+				imageCalculator("Subtract create stack", "Large&Filtred.tif","Temp.tif");
+				ChangeValues_OnStack();
+				saveAs("Tiff", RepResultat+"Temp.tif");		
+				close("\\Others");
+				
+		// Combine small&large labels (Cp30 + RES_Cp30)
+				print("....[Combining labels]....");
+				open(RepResultat + "Small_external.tif");
+				RGB_ToMask();
+				rename("Small_external8bit");
+				imageCalculator("Add create stack", "Temp.tif","Small_external8bit");
+				ChangeValues_OnStack();
+				saveAs("Tiff", RepResultat + "Result.tif");
+				replace("Result", ".tif", "");
+				close("*");
+
+		// Segmentation and assigning labels
+				open(RepResultat+"Result.tif");
+				Segmentation_Labelisation3D_GPU();
+				rename(NameImage + "_cb_label.tif");
+				saveAs("Tiff", RepResultat + NameImage + "_cb_label.tif");
+				close("\\Others");
+
+		// Filtering
+				run("Size...", "width=SizeX height=SizeY depth=SizeZ interpolation=None");
+				Stack.setXUnit("um");
+				run("Properties...", "channels=1 slices=SizeZ frames=1 pixel_width=ResX pixel_height=ResY voxel_depth=ResZ");
+				print("....[Filtering]....");
+				Filtre_Sphericity=0;	// ********* 
+				Filtre_Volume=33510.3216382911;	// Delete labels with Equivalent Diameter < 40 um ************************
+				Filtration_3D();
+				selectWindow("Stack_Filtre_Conserve");
+				saveAs("Tiff", RepResultat + NameImage + "_cb_label_filtred.tif");
+				replace("cb_label_filtred", ".tif", "");				
+				close("\\Others");
+				close("TableMesure");
+				
+		// Data extraction (diameters)
+//				run("Analyze Regions 3D", "volume surface_area_method=[Crofton (13 dirs.)] euler_connectivity=26");
+//				IJ.renameResults("TableMesure");
+//				NombreObjet=getValue("results.count");
+//				Mesure_Volume=newArray(NombreObjet);
+//				TableOocytesDiameter= newArray(NombreObjet);
+//				a=0;
+//				for (i = 0; i < NombreObjet; i++) {
+//		   		Mesure_Volume[i] = getResult("Volume", i);
+//				TableOocytesDiameter[a]=pow((6*Mesure_Volume[i]/PI),1/3);
+//				a++;
+//			 	}
+//				ChampMesure = "";
+//				ChampMesure = NameImage+"\t"+ResX+"\t"+ResZ+"\t"+NombreObjet+"\t"+nResults+"\t"; 
+//				for(k=0; k<TableOocytesDiameter.length; k++){
+//				ChampMesure = ChampMesure+TableOocytesDiameter[k]+"\t";
+//				}
+//				print(Outputfile,ChampMesure+"\t");
+//				save(Outputfile);
+//				close("*");
+//				close("Results");
+//				close("TableMesure");
+		
+						
+// Temporary files management
+	//Delete_temporary_1();
+	function Delete_temporary_1() { 
+		// Delete temporary files
+		File.delete(RepResultat+"Small&filtred.tif");
+		File.delete(RepResultat+"Small&Filtred-open.tif");
+		File.delete(RepResultat+"Small&Filtred1-open-OR1.tif");
+		File.delete(RepResultat+"Small&filtred-RGB.tif");
+		File.delete(RepResultat+"Large&filtred.tif");
+		File.delete(RepResultat+"Large&filtred-RGB.tif");
+		File.delete(RepResultat+"Large_open.tif");
+		File.delete(RepResultat+"Result.tif");
+		File.delete(RepResultat+"Result_seg.tif");
+		File.delete(RepResultat+"Small_external.tif");
+		File.delete(RepResultat+"Small_internal.tif");
+		File.delete(RepResultat+"Temp.tif");
+		File.delete(RepResultat+"Stack_Filtre_small-Opening.tif");
+		File.delete(RepResultat+"Stack_Filtre_large-Opening.tif");
+		File.delete(RepResultat+"Stack_Filtre_med-Opening.tif");
+		File.delete(RepResultat+NameImage + "_cb_label.tif");	
+		File.delete(RepResultat+"Small-BND.tif");
+		File.delete(RepResultat+"Small-BND-open.tif");
+		File.delete(RepResultat+"Stack_Filtre_large.tif");
+		File.delete(RepResultat+"Stack_Filtre_small.tif");
+		File.delete(RepResultat+"Stack_Filtre_med.tif");
+}
+
+End=getTime();
+print("----------[ " + getInfo("user.name") + " " +NameImage+ " was analyzed. ]---------- \n----------[ Total elapsed time ]----------" + TimeCalc(Start, End)); 
+nbImage++;
+}
+	    		else {
+	        	print(ListImage[i]+ "...Not treated");   
+				}
+			}
+		    else {
+		        print("...Not a tiff file");    }
+		    }
+close("*");
+close("ROI Manager");
+restoreSettings();
+print("----------[ " + getInfo("user.name") + " " +nbImage+ " Image(s) Analyse(s)...No more files. ]---------- \n----------[ Total elapsed time ]----------" + TimeCalc(Start, End)); 
+print("----------[ ENDING MACRO ]---------- "+getTimeString());
+showMessage(nbImage + " images have been processed");
+
+}
+
+////////////////////// END OF THE MACRO /////////////////////////
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+macro "Combine_Labels_Add_largest_manually_&_delete_errors- icon:Add_Manual_Extract.png"{
+
+////////////////////// INITIALISATION ////////////////////////////////////////////////
+saveSettings();
+run("Options...", "iterations=1 black count=1"); // dark background	
+run("Colors...", "foreground=white background=black selection=red"); // colour settings	
+run("Appearance...", " "); // no inversion of LUTs
+run("Close All");
+run("Clear Results");
+run("Close All");
+close("Log");
+setTool("hand");
+
+////////////////////// DEFINING FOLDERS, FILES AND PARAMETERS /////////////////////////			
+			
+// Choose input data : Image data + Cp30-RESCp30_combined + RESCp60_labels
+	waitForUser("Open the images Combine + Large60 + Image that have to be combined \nThen press OK");
+	Path1=getInfo("image.directory");
+	Name1=getTitle();
+	close();
+	Path2=getInfo("image.directory");
+	Name2=getTitle();
+	close();
+	Path3=getInfo("image.directory");
+	Name3=getTitle();
+	close();				
+				
+	Label = newArray("Combine", "Large60", "Image"); 
+	Dialog.create("Combine Files");
+	Dialog.addMessage("Name of the sample analyzed");
+	Dialog.addString("Sample name", "Title");
+ 	Dialog.addMessage(Name1, 9);
+ 	Dialog.addChoice("Image type", Label);
+	Dialog.addMessage(Name2, 9);
+ 	Dialog.addChoice("Image type", Label);
+ 	Dialog.addMessage(Name3, 9);
+ 	Dialog.addChoice("Image type", Label);			 	
+	Dialog.addMessage("Resolution of images");		 	
+ 	Dialog.addNumber("X (um/pixel)", 5.41);
+	Dialog.addNumber("Y (um/pixel)", 5.41);
+	Dialog.addNumber("Z (um/pixel)", 6.0002);			
+	Dialog.show();
+	SampleName = Dialog.getString();
+	Newname1 = Dialog.getChoice();
+	Newname2 = Dialog.getChoice();
+	Newname3 = Dialog.getChoice();				
+	ResX = Dialog.getNumber();
+	ResY = Dialog.getNumber();
+	ResZ = Dialog.getNumber();
+
+// Output repertory
+	waitForUser("Please choose the ouput file");
+	RepImage = getDirectory("Please choose the output file");
+
+Start = getTime();
+			
+// Create subfolder
+	File.makeDirectory(RepImage + "/Combined-CP60/"); 
+	RepResultat = RepImage + "/Combined-CP60/";
+
+// Create a results .xls file (with date, time and min. to avoid duplication).
+	getDateAndTime(year, month, dayOfWeek, dayOfMonth, hour, minute, second, msec);
+	Outputfile=File.open(RepResultat +"/Foll_Diameter__"+SampleName+"-"+dayOfMonth+"-"+(month+1)+"-"+year+"_"+hour+"-"+minute+".xls");
+	print(Outputfile,"SampleName \tCalibration X,Y (um/pixel) \tCalibration Z (um/pixel) \tTotal Oocyte number \tOocytes Diameter (um)\t");
+
+// Open the log window
+	print("\\Clear");
+	print("----------[ CALIBRATION PARAMETERS ]---------- ");
+	print("---[ Image Resolution ]---: " + ResX + " um" + "--" + ResY + " um" + "--" + ResZ + " um");
+	//print("----------[ STARTING MACRO ]---------------------- "+ getTimeString());
+
+////////////////////// BEGINNING OF THE ANALYSES /////////////////////////
+	
+			// Rename images
+				open(Path1+Name1);
+				rename(Newname1);
+				saveAs("Tiff", RepResultat + Newname1 + ".tif");
+			
+				open(Path2+Name2);
+				rename(Newname2);
+				saveAs("Tiff", RepResultat + Newname2 + ".tif" );
+
+				open(Path3+Name3);
+				rename(Newname3);
+				saveAs("Tiff", RepResultat + Newname3 + ".tif");
+
+			// Get info for resizing
+				selectWindow("Combine.tif");
+				SizeX= getWidth();
+				SizeY= getHeight();
+				SizeZ= nSlices;
+				close("*");
+				
+			// Resize, adjust resolution, filter & LabelBoundary												
+				open(RepResultat + "Large60.tif");
+				run("Size...", "width=SizeX height=SizeY depth=SizeZ interpolation=None");
+				Sub_Mask_Boundary_3D();
+				saveAs("Tiff", RepResultat + "Large60_BND.tif");
+				selectWindow("Large60_BND.tif");
+				input=getTitle();
+				numOpening=18;	// **********
+				opening3D_GPU();
+				replace("Large60&Filtred", ".tif", "");
+				saveAs("Tiff", RepResultat + "Large60&Filtred.tif");
+				close("*");
+				
+				open(RepResultat + "Combine.tif");
+				run("3D Manager");
+				if (roiManager("count")!=0) {
+      			roiManager("Delete");
+        		}
+				run("3D Manager Options", "volume objects use distance_between_centers=10 distance_max_contact=1.80 drawing=Contour use_0");					
+				Ext.Manager3D_AddImage();
+				open(RepResultat + "Image.tif");
+				Ext.Manager3D_SelectAll();	
+				open(RepResultat +"Large60&Filtred.tif");
+				setTool("multipoint");
+//				
+		waitForUser("If necessary, select labels on cp60 image and press OK to continue");
+		Dialog.create("Use of Cellpose 60 labels");
+		Dialog.addMessage("Did you selected any labels?");
+		Dialog.addCheckbox("Yes", false);
+		Dialog.addMessage("(Click cancel to exit the macro)",10,"#ff0000");
+		Dialog.show();
+		Yes = Dialog.getCheckbox();
+//
+if (Yes){
+//************** ADD LABELS FROM RES-CP60  ****************************		
+				run("Interactive Morphological Reconstruction 3D", "type=[By Dilation] connectivity=6");
+				saveAs("Tiff", RepResultat+"Large60_selection.tif");
+				close("\\Others");
+
+		// Find over-segmented labels and delete 
+				numOpening=28;	// **********
+				opening3D_GPU();
+				saveAs("Tiff", RepResultat+"Large60_open.tif");
+				open(RepResultat+"Combine.tif");
+				RGB_ToMask();
+				rename("combine8bit");
+				run("Morphological Reconstruction 3D", "marker=Large60_open.tif mask=combine8bit type=[By Dilation] connectivity=6");
+				rename("Small60_internal.tif");
+				saveAs("Tiff", RepResultat+"Small60_internal.tif");
+				imageCalculator("Subtract create stack","combine8bit","Small60_internal.tif");
+				ChangeValues_OnStack();
+				saveAs("Tiff", RepResultat+"Small60_external.tif");
+				run("Close All");
+				
+		// Trim Large labels for correct separation from closest small labels
+				open(RepResultat+"Small60_external.tif");
+				RGB_ToMask();
+				numDilations=3;	// **********
+				dilate3D_GPU();	
+				saveAs("Tiff", RepResultat+"Temp.tif");												
+				open(RepResultat+"Large60_selection.tif");
+				imageCalculator("Subtract create stack", "Large60_selection.tif","Temp.tif");
+				ChangeValues_OnStack();
+				saveAs("Tiff", RepResultat+"Temp.tif");				
+				close("\\Others");
+
+		// Combine small & large labels
+				open(RepResultat+"Small60_external.tif");
+				RGB_ToMask();
+				rename("Small60_external_8bit");
+				imageCalculator("Add create stack", "Temp.tif","Small60_external_8bit");
+				ChangeValues_OnStack();
+				saveAs("Tiff", RepResultat + SampleName + "_cb_mask.tif");
+				replace("Result", ".tif", "");
+				close("*");
+				
+//********** DELETE MASKS MANUALLY ***********************	
+				close("*");
+				open(RepResultat +SampleName + "_cb_mask.tif");
+				run("3D Manager");
+				if (roiManager("count")!=0) {
+      			roiManager("Delete");
+        		}
+				run("3D Manager Options", "volume objects use distance_between_centers=10 distance_max_contact=1.80 drawing=Contour use_0");					
+				Ext.Manager3D_AddImage();
+				open(RepResultat + "Image.tif");
+				Ext.Manager3D_SelectAll();	
+				selectWindow(SampleName + "_cb_mask.tif");
+				RGB_ToMask();
+				saveAs("Tiff", RepResultat + SampleName + "_cb_mask.tif");
+				setTool("multipoint");
+			
+		waitForUser("If necessary, select Masks to DELETE \nThen \nPress OK to continue");
+
+				run("Interactive Morphological Reconstruction 3D", "type=[By Dilation] connectivity=6");
+				saveAs("Tiff", RepResultat + "Labels_selected.tif");
+				close("\\Others");
+				open(RepResultat + SampleName + "_cb_mask.tif");
+				imageCalculator("Subtract create stack",SampleName + "_cb_mask.tif","Labels_selected.tif");
+				ChangeValues_OnStack();
+				saveAs("Tiff", RepResultat + SampleName + "_cb_mask-DL.tif"); 	
+				
+//**************  Segmentation and assigning labels  ****************************
+				open(RepResultat + SampleName + "_cb_mask-DL.tif");
+				Segmentation_Labelisation3D_GPU();
+				rename(SampleName + "_cb_label.tif");
+				saveAs("Tiff", RepResultat + SampleName + "_cb_label.tif");
+				setTool("hand");
+				run("Close All");
+		}
+else {
+//********** DELETE MASKS MANUALLY ***********************	
+				close("*");
+				open(RepResultat + "Combine.tif");
+				run("3D Manager");
+				if (roiManager("count")!=0) {
+      			roiManager("Delete");
+        		}
+				run("3D Manager Options", "volume objects use distance_between_centers=10 distance_max_contact=1.80 drawing=Contour use_0");					
+				Ext.Manager3D_AddImage();
+				open(RepResultat + "Image.tif");
+				Ext.Manager3D_SelectAll();	
+				selectWindow("Combine.tif");
+				RGB_ToMask();
+				saveAs("Tiff", RepResultat + "Combine.tif"); 	
+				setTool("multipoint");
+			
+		waitForUser("If necessary, select Masks to DELETE \nThen \nPress OK to continue");
+
+				run("Interactive Morphological Reconstruction 3D", "type=[By Dilation] connectivity=6");
+				saveAs("Tiff", RepResultat + "Labels_selected.tif");
+				close("\\Others");
+				open(RepResultat + "Combine.tif");
+				imageCalculator("Subtract create stack","Combine.tif","Labels_selected.tif");
+				ChangeValues_OnStack();
+				saveAs("Tiff", RepResultat + SampleName + "_cb_mask-DL.tif"); 	
+				
+//**************  Segmentation and assigning labels ****************************
+				open(RepResultat + SampleName + "_cb_mask-DL.tif");
+				Segmentation_Labelisation3D_GPU();
+				rename(SampleName + "_cb_label.tif");
+				saveAs("Tiff", RepResultat + SampleName + "_cb_label.tif");
+				setTool("hand");
+				run("Close All");
+		}
+
+//************** DATA EXTRACTION *****************************	
+		// Labels filtration
+				open(RepResultat + SampleName + "_cb_label.tif");
+				run("Size...", "width=SizeX height=SizeY depth=SizeZ interpolation=None");
+				Stack.setXUnit("um");
+				run("Properties...", "channels=1 slices=SizeZ frames=1 pixel_width=ResX pixel_height=ResY voxel_depth=ResZ");
+				Filtre_Sphericity=0;	// ********* 
+				Filtre_Volume=33510.3216382911;	// Delete labels with Equivalent Diameter < 40 um ************************
+				Filtration_3D();
+				selectWindow("Stack_Filtre_Conserve");
+				saveAs("Tiff", RepResultat + SampleName + "_cb_label_filtred.tif");
+				replace("cb_label_filtred", ".tif", "");				
+				close("*");
+				close("TableMesure");
+				
+		// Data extraction (diameters)
+				open(RepResultat + SampleName + "_cb_label_filtred.tif");
+				run("Analyze Regions 3D", "volume surface_area_method=[Crofton (13 dirs.)] euler_connectivity=26");
+				IJ.renameResults("TableMesure");
+				NombreObjet=getValue("results.count");
+				Mesure_Volume=newArray(NombreObjet);
+				TableOocytesDiameter= newArray(NombreObjet);
+				a=0;
+				for (i = 0; i < NombreObjet; i++) {
+		   		Mesure_Volume[i] = getResult("Volume", i);
+				TableOocytesDiameter[a]=pow((6*Mesure_Volume[i]/PI),1/3);
+				a++;
+			 	}
+				ChampMesure = "";
+				ChampMesure = SampleName+"\t"+ResX+"\t"+ResZ+"\t"+NombreObjet+"\t"+nResults+"\t"; 
+				for(k=0; k<TableOocytesDiameter.length; k++){
+				ChampMesure = ChampMesure+TableOocytesDiameter[k]+"\t";
+				}
+				print(Outputfile,ChampMesure+"\t");
+				save(Outputfile);
+				close("*");
+				close("Results");
+				close("TableMesure");
+				
+// Temporary files management
+	
+	//Delete_temporary_2();
+
+	function Delete_temporary_2() { 
+	// Delete temporary files
+	File.delete(RepResultat + "Image.tif");
+	File.delete(RepResultat+"Temp.tif");
+	File.delete(RepResultat+"Large60.tif");
+	File.delete(RepResultat+"Combine.tif");
+	File.delete(RepResultat+"Large60&filtred.tif");
+	File.delete(RepResultat+"Small60_internal.tif");
+	File.delete(RepResultat+"Small60_external.tif");
+	File.delete(RepResultat+"Large60_BND.tif");
+	File.delete(RepResultat+"Large60_open.tif");
+	File.delete(RepResultat+"Large60_selection.tif");
+	File.delete(RepResultat+SampleName + "_cb_label.tif");
+	File.delete(RepResultat+SampleName + "_cb_mask.tif");
+	File.delete(RepResultat+ "Result_seg.tif");
+	File.delete(RepResultat+SampleName + "_cb_mask-DL.tif");
+	File.delete(RepResultat+ "Labels_selected.tif");
+}
+
+
+End = getTime();
+restoreSettings();
+print("----------[ " + getInfo("user.name") + " " +SampleName+ " was analyzed. ]---------- \n----------[ Total elapsed time ]----------" + TimeCalc(Start, End)); 
+print("----------[ ENDING MACRO ]---------- "+getTimeString());
+showMessage(SampleName + " images have been processed");
+}				
+		
+////////////////////// END OF THE ANALYSES /////////////////////////
+
+///// LIST OF CALLED FUNCTIONS
+
+// Label to Mask = separate labels generated with cellpose (that are touching each other)
+function Sub_Mask_Boundary_3D(){ 
+			masks=getTitle();
+			run("Label Boundaries");
+			bnd=getTitle();
+			run("Binary Overlay", "reference="+masks + " binary="+bnd + " overlay=Black");
+			run("8-bit");
+			run("Options...", "iterations=1 count=1 black");
+			setAutoThreshold("Default dark");
+			run("Threshold...");
+			setThreshold(1, 255);
+			setOption("BlackBackground", true);
+			run("Convert to Mask", "method=Default background=Dark black");
+			run("glasbey on dark");
+}
+
+// Morphological 3D Opening on GPU
+function opening3D_GPU(){ 
+		input=getTitle();
+		// Initialize the GPU and push image to GPU memory
+		run("CLIJ2 Macro Extensions", "cl_device=HD");
+		Ext.CLIJ2_clear();
+		// erode
+		Ext.CLIJ2_push(input);
+		Ext.CLIJ2_openingBox(input, temp, numOpening);
+		//show result
+		Ext.CLIJ2_pull(temp);
+		Ext.CLIJ2_saveAsTIF(temp, RepResultat+"Temp.tif");
+		Ext.CLIJ2_clear();
+		close("*");
+		open(RepResultat + "Temp.tif");
+		close("\\Others");
+			Ext.CLIJ2_clear();
+			Ext.CLIJ2_push(input);
+			Ext.CLIJ2_convertUInt8(input, output8bit);
+			Ext.CLIJ2_release(input);
+			Ext.CLIJ2_pull(output8bit);
+			Ext.CLIJ2_clear();
+		run("Options...", "iterations=1 count=1 black");
+		run("Threshold...");
+		setThreshold(1, 255);
+		setOption("BlackBackground", true);
+		run("Convert to Mask", "method=Default background=Dark black");
+		run("glasbey on dark");		
+}
+
+// Morphological 3D dilatation on GPU - Dilate sphere in 3D
+function dilate3D_GPU(){ 
+		input=getTitle();
+		run("CLIJ2 Macro Extensions", "cl_device=HD");
+		Ext.CLIJ2_clear();
+		Ext.CLIJ2_push(input);
+		Ext.CLIJ_dilateSphere(input, "dilated0");	// iterative dilation
+		for (i = 0; i < numDilations; i++) {
+		Ext.CLIJ_dilateSphere("dilated"+i, "dilated"+(i+1));
+		}		
+		Ext.CLIJ_pull("dilated"+ numDilations);
+		Ext.CLIJ2_release(input);
+		run("glasbey on dark");	
+		Ext.CLIJ2_saveAsTIF("dilated"+ numDilations, RepResultat+"Temp.tif");
+		Ext.CLIJ2_clear();
+		close("*");
+		open(RepResultat + "Temp.tif");
+		close("\\Others");
+		run("8-bit");
+		run("Options...", "iterations=1 count=1 black");
+		run("Threshold...");
+		setThreshold(1, 255);
+		setOption("BlackBackground", true);
+		run("Convert to Mask", "method=Default background=Dark black");
+		run("glasbey on dark");		
+}
+
+// 3D labels filtration
+function Filtration_3D(){
+//		run("Remove Border Labels", "left right top bottom front back");		
+		rename("Stack_Filtre_Conserve");
+		run("Remap Labels");
+		run("Duplicate...", "title=Stack_Filtre_Supprime duplicate");
+		run("Analyze Regions 3D", "volume sphericity surface_area_method=[Crofton (13 dirs.)] euler_connectivity=26");
+		IJ.renameResults("TableMesure");
+		NombreObjet=getValue("results.count");
+		Mesure_Sphericity=newArray(NombreObjet);
+		Mesure_Volume=newArray(NombreObjet);
+		Label_A_Eliminer="";
+		Label_A_Conserver="";
+		NombreCelluleFinal=0;
+		// Label filtration
+		// Filtering labels and assigning to "keep" or "delete"
+		for (i = 0; i < NombreObjet; i++) {
+		   Mesure_Sphericity[i] = getResult("Sphericity", i);
+		   Mesure_Volume[i] = getResult("Volume", i);
+		   if ((Mesure_Sphericity[i]>Filtre_Sphericity) && (Mesure_Volume[i]>=Filtre_Volume)){
+		   // Labels to keep
+		   Label_A_Conserver=Label_A_Conserver+i+1+",";
+		   }
+		   else{
+		   // Labels to delete	
+		   	Label_A_Eliminer=Label_A_Eliminer+i+1+",";
+		   	NombreCelluleFinal=NombreCelluleFinal+1;
+		   }
+		}
+		// Delete labels
+		if(Label_A_Eliminer!=""){
+		selectWindow("Stack_Filtre_Conserve");
+		run("Replace/Remove Label(s)", "label(s)="+Label_A_Eliminer+" final=0");
+		}
+		selectWindow("Stack_Filtre_Conserve");
+		run("Labels To RGB", "colormap=[Golden angle] background=Black shuffle");
+		rename("Stack_Filtre_Conserve_RGB");
+		NombreCelluleSupprimer=NombreObjet-NombreCelluleFinal;
+}
+
+// Split image by size classes
+function Split_3D(){		
+		rename("Stack_Filtre_small");
+		run("Remap Labels");
+		run("Duplicate...", "title=Stack_Filtre_large duplicate");
+		run("Duplicate...", "title=Stack_Filtre_med duplicate");
+		run("Analyze Regions 3D", "volume sphericity surface_area_method=[Crofton (13 dirs.)] euler_connectivity=26");
+		IJ.renameResults("TableMesure");
+		NombreObjet=getValue("results.count");		
+		Mesure_Sphericity=newArray(NombreObjet);
+		Mesure_Volume=newArray(NombreObjet);
+		Label_small="";
+		Label_med="";
+		Label_large="";
+		NombreCelluleFinal=0;
+		// Filtering labels and assigning to a class "small", "medium" or "large"
+		for (i = 0; i < NombreObjet; i++) {
+		   Mesure_Sphericity[i] = getResult("Sphericity", i);
+		   Mesure_Volume[i] = getResult("Volume", i);
+		   if ((Mesure_Sphericity[i]>Filtre_Sphericity) && (Mesure_Volume[i]<=Filtre_Volume)){
+		   // List labels small (40um<labels<200um)
+		   Label_small=Label_small+i+1+",";
+		   }
+		   else {
+		   if ((Mesure_Sphericity[i]>Filtre_Sphericity_2) && (Mesure_Volume[i]>Filtre_Volume_2)){
+		   // List labels large (>600um)
+		   Label_large=Label_large+i+1+",";
+		   }
+		   else{
+		   	//List labels medium (200um<labels<600um)
+		   	Label_med=Label_med+i+1+",";
+		   	NombreCelluleFinal=NombreCelluleFinal+1;
+		   }}
+		}
+		SupSmall_and_med=Label_small+Label_med;
+		SupSmall_and_large=Label_small+Label_large;
+		Sup_med_and_large=Label_med+Label_large;	
+		
+		if(Label_small!=""){
+		// Delete small&medium labels to create Large labels image
+		selectWindow("Stack_Filtre_large");													/// Filtre LARGE
+		run("Replace/Remove Label(s)", "label(s)="+SupSmall_and_med+" final=0");
+		}	
+		if(Label_med!=""){
+		// Delete small&large labels to create medium labels image
+		selectWindow("Stack_Filtre_med");													/// Filtre MEDIUM
+		run("Replace/Remove Label(s)", "label(s)="+SupSmall_and_large+" final=0");
+		}	
+		if(Label_large!=""){
+		// Delete medium&large labels to create small labels image
+		selectWindow("Stack_Filtre_small");													/// Filtre SMALL
+		run("Replace/Remove Label(s)", "label(s)="+Sup_med_and_large+" final=0");
+		}
+		selectWindow("Stack_Filtre_large");	
+		saveAs("Tiff", RepResultat+"Stack_Filtre_large.tif");
+		selectWindow("Stack_Filtre_med");	
+		saveAs("Tiff", RepResultat+"Stack_Filtre_med.tif");
+		selectWindow("Stack_Filtre_small");	
+		saveAs("Tiff", RepResultat+"Stack_Filtre_small.tif");	
+		close("*");	
+		NombreCelluleSupprimer=NombreObjet-NombreCelluleFinal;
+}
+
+// Segmentation and assign labels (GPU assisted)
+function Segmentation_Labelisation3D_GPU(){ 
+		//run("16-bit");			
+		input=getTitle();
+		// Initialize the GPU and push image to GPU memory
+		run("CLIJ2 Macro Extensions", "cl_device=HD");
+		Ext.CLIJ2_clear();
+		// seeded watershed
+		Ext.CLIJ2_push(input);
+		Ext.CLIJ2_push(input);
+		temp =  "seeded_watershed";
+		threshold = 1.0; //********** default 1.0
+		Ext.CLIJx_seededWatershed(input, input, temp, threshold);
+		Ext.CLIJ2_release(input);
+		Ext.CLIJ2_pull(temp);
+	run("Connected Components Labeling", "connectivity=6 type=[16 bits]");
+	run("glasbey on dark");
+	saveAs("Tiff", RepResultat+"Result_seg.tif");	
+//		Ext.CLIJ2_saveAsTIF(temp, RepResultat+"Result_seg.tif");
+		Ext.CLIJ2_clear();
+		close("*");
+		open(RepResultat+"Result_seg.tif");
+//		run("Connected Components Labeling", "connectivity=6 type=[16 bits]");
+//		run("glasbey on dark");
+}
+
+// RGB to Mask
+function RGB_ToMask() { 
+		run("Labels To RGB", "colormap=[Golden angle] background=Black shuffle");
+		run("8-bit");
+		run("Options...", "iterations=1 count=1 black");
+		run("Threshold...");
+		setThreshold(1, 255);
+		setOption("BlackBackground", true);
+		run("Convert to Mask", "method=Default background=Dark black");
+		run("glasbey on dark");	
+}
+
+// Delete pixels identified by Image Calculator
+function ChangeValues_OnStack() { 
+		setSlice(1);
+		Z=nSlices;
+		for (i = 1; i < Z; i++){
+				run("Next Slice [>]");
+				changeValues(0, 254, 0);
+				}
+		setSlice(1);
+		}
+
+// Filtering files
+function filter(i, name) {
+	//Filtering files : If false, file will not be processed
+// is directory?
+    if (endsWith(name,"/")) return false;
+// is tiff?
+    if (endsWith(name,".tif")==-1) return false;
+    return true;
+// ignore text files
+    if (endsWith(name,".txt")) return false;
+// does name contain "mask"
+    if (indexOf(name,"mask")==-1) return false;
+// open only first 10 images
+// if (i>=10) return false;
+    return true;
+}
+
+// Time calculator
+function TimeCalc(Start, End){ 
+		Time = ((End-Start)/1000);
+		print (Time*1000);
+		hour = floor(Time/3600);
+		min = floor ((Time/60)-(hour*60));
+		sec = floor(Time-hour*3600-min*60);
+		timeCalc = "[ "+hour+"h "+min+" min"+sec+"sec ]";
+		return timeCalc;
+}
+
+// Get live Date & Time
+function getTimeString(){
+		MonthNames = newArray("January","February","March","April","May","Jun","July","August","September","October","November","December");
+		DayNames = newArray("Sunday", "Monday","Tuesday","Wednesday","Thursday","Friday","Saturday");
+		getDateAndTime(year, month, dayOfWeek, dayOfMonth, hour, minute, second, msec);
+		TimeString =" [Date: "+DayNames[dayOfWeek]+" ";
+		if (dayOfMonth<10) {TimeString = TimeString+"0";}
+		TimeString = TimeString+dayOfMonth+"-"+MonthNames[month]+"-"+year+"]  [Time: ";
+		if (hour<10) {TimeString = TimeString+"0";}
+		TimeString = TimeString+hour+":";
+		if (minute<10) {TimeString = TimeString+"0";}
+		TimeString = TimeString+minute+":";
+		if (second<10) {TimeString = TimeString+"0";}
+		TimeString = TimeString+second;
+		return TimeString +"]";
+}
+
