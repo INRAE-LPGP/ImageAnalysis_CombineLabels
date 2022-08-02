@@ -1,0 +1,146 @@
+//////////	HCEE : High Contrast and/or Edges Enhancement	////////////
+
+/////v2.0____07.02.2021___Manon Lesage-PhD student-INRAE LPGP
+
+/////////////////////////////////////////////////////////////////////////////////////
+
+// THIS MACRO REQUIRES : CLAHE, MorphoLibJplugins (Morphological filters (3D)), MEDIAN 3D
+
+//	- Files in TIF or TIFF
+//	- Only final results will be saved :
+//			to keep CLAHE intermediate result, supress "//" line 87
+//			to keep external_gradient intermediate result, supress "//" line 97
+// - Please specify CLAHE parameters line 23-28
+
+/////////////////////////////////////////////////////////////////////////////////////
+
+
+macro "HCEE"{
+setBatchMode(true);
+
+/////////// CLAHE parameters : //////////////
+
+blocksize = 256;
+histogram_bins = 255;
+maximum_slope = 6.5;
+mask = "*None*";
+fast = true;
+process_as_composite = false;
+
+////////////////////////////////////////////
+
+
+//Directories 
+dir = getDirectory("Please choose file(s) directory");
+print("\\Clear");
+File.makeDirectory(dir+"\\CLAHE_EDGES\\");
+outputdir=dir+"\\CLAHE_EDGES\\";
+
+//START
+Start=getTime();
+print("----------[ Starting macro ]---------- "+getTimeString());
+
+//Loop for n files (3D stacks) in folder
+
+filelist= getFileList(dir);
+for (i=0; i < lengthOf(filelist); i++){
+    if((endsWith(filelist[i], ".tif") || (endsWith(filelist[i], ".TIF")))){
+    	print("...[ File ]...: "+filelist[i]);
+        run("Close All");
+        run("Clear Results");
+        open(dir + File.separator + filelist[i]);
+        filename=getTitle();
+		filename = replace(filename, ".tif", "");
+        print("......[ Running CLAHE ]...: "+filename);
+			
+			//CLAHEonSTACK (Source : https://imagej.net/plugins/clahe)
+      
+			getDimensions( width, height, channels, slices, frames );
+			isComposite = channels > 1;
+			parameters =
+			  "blocksize=" + blocksize +
+			  " histogram=" + histogram_bins +
+			  " maximum=" + maximum_slope +
+			  " mask=" + mask;
+			if ( fast )
+			  parameters += " fast_(less_accurate)";
+			if ( isComposite && process_as_composite ) {
+			  parameters += " process_as_composite";
+			  channels = 1;
+			}
+			   
+			for ( f=1; f<=frames; f++ ) {
+			  Stack.setFrame( f );
+			  for ( s=1; s<=slices; s++ ) {
+			    Stack.setSlice( s );
+			    for ( c=1; c<=channels; c++ ) {
+			      Stack.setChannel( c );
+			      run( "Enhance Local Contrast (CLAHE)", parameters );
+			     }
+			  }
+			}
+	   
+	    filename2=getTitle();
+	    rename("CLAHE_" + filename2);
+	    clahe_result=getTitle();
+      print("......[ CLAHE completed ]...: " + clahe_result);
+           //saveAs("tiff", outputdir+clahe_result);
+        
+
+	   
+//Edges substraction with Morphological gradient (MorphoLibJ)
+	    print("......[ Running EDGES ]...: ");
+	    run("Duplicate...", "duplicate");
+	    run("Median 3D...", "x=2 y=2 z=2");
+	    run("Morphological Filters (3D)", "operation=[External Gradient] element=Ball x-radius=2 y-radius=2 z-radius=2");
+	    ext_gradient=getTitle();
+	       //saveAs("tiff", outputdir+ext_gradient);
+	    imageCalculator("Subtract create stack",clahe_result, ext_gradient);
+	    Result=getTitle();
+	    Result = replace(filename + "_CLAHE_EDGES", ".tif", "");
+	    saveAs("tiff", outputdir+Result);
+	    close();
+	    run("Close All");
+	    print(".........[ Completed ] \n...[ "+Result+" ]   saved in : "+outputdir+"");
+    }
+}
+
+setBatchMode(false);
+End=getTime();
+print("...No more files. \n----------[ Total elapsed time]----------" + ElapsedTime(Start,End)); 
+ElapsedTime(Start,End);
+showMessage("High Contrast and Edges Enhancement", "All files have been processed");
+}
+
+//////////END OF MACRO
+
+
+/////FONCTIONS:
+
+function ElapsedTime(Start,End){
+	// Time for macro to complete (convert ms in hour+min+sec)
+macrotime=((End-Start)/1000);
+macrohour= floor(macrotime / 3600);
+macromin = floor((macrotime / 60) - (macrohour * 60));
+macrosec = floor(macrotime - macrohour * 3600- macromin * 60);
+elapsedtime= "[ "+macrohour+"h "+macromin+"min "+macrosec+"sec ]";
+return elapsedtime;
+}
+
+
+function getTimeString(){
+	// Get live Date & Time
+MonthNames = newArray("Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec");
+DayNames = newArray("Sun", "Mon","Tue","Wed","Thu","Fri","Sat");
+getDateAndTime(year, month, dayOfWeek, dayOfMonth, hour, minute, second, msec);
+TimeString =" [Date: "+DayNames[dayOfWeek]+" ";
+     if (dayOfMonth<10) {TimeString = TimeString+"0";}
+     TimeString = TimeString+dayOfMonth+"-"+MonthNames[month]+"-"+year+"]  [Time: ";
+     if (hour<10) {TimeString = TimeString+"0";}
+     TimeString = TimeString+hour+":";
+     if (minute<10) {TimeString = TimeString+"0";}
+     TimeString = TimeString+minute+":";
+     if (second<10) {TimeString = TimeString+"0";}
+     TimeString = TimeString+second;
+return TimeString +"]";
+}
