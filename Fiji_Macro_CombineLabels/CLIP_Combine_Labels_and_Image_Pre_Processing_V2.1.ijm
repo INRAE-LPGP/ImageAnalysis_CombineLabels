@@ -844,7 +844,7 @@ print("...[ Compute boundaries overlay ]");
 					saveAs("Tiff", RepResultat + NameMask + "_cp_BND.tif");
 					run("Duplicate...", "duplicate");
 					rename(NameMask + "_lb_BND");
-					run("Connected Components Labeling", "connectivity=6 type=[16 bits]");
+					run("Connected Components Labeling", "connectivity=6 type=float");
    					run("glasbey on dark");
    					saveAs("Tiff", RepResultat + NameMask + "_cp_BND_lb.tif");
 					close("*");
@@ -2592,7 +2592,7 @@ function dilate3D_GPU(){
 function Filtration_3D(){
 
 print("...[ Filtration ]");
-		run("Remove Border Labels", "left right top bottom front back");		
+//		run("Remove Border Labels", "left right top bottom front back");		
 		rename("Stack_Filtre_Conserve");
 		run("Remap Labels");
 		run("Duplicate...", "title=Stack_Filtre_Supprime duplicate");
