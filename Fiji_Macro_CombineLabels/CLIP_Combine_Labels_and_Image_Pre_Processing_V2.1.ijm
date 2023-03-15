@@ -17,7 +17,7 @@
 // CLIP_Image (Image Pre-processing).............................Line 58
 // CLIP_Draw Label Boundary & Resize.............................Line 758
 // CLIP_Filter Labels (Labels Post-processing)...................Line 866
-// CLIP_Filter&Combine Labels (Labels Post-processing)...........Line 1160
+// CLIP_Filter & Combine Labels (Labels Post-processing).........Line 1160
 // CLIP_Extract Data.............................................Line 2257
 // LIST OF CALLED FUNCTIONS......................................Line 2332
 
@@ -1213,15 +1213,19 @@ html = "<html>"
      +"</font>";
   
 Dialog.create("Before starting macro");     
-Dialog.addMessage("----- Filter&Combine Small & Large labels -----"+
-"\n       -- Folder organization needed --", 16); 
-Dialog.addMessage("\n\n\\.....\\ProjectName\\  (=ROOT FOLDER) :"+ 
-"\n \n       ....Pre-processed Image  (*name_image*.tif) "+
-"\n       ....\\Small_Masks\\    (Subfolder)"+
+Dialog.addMessage("----- Filter & Combine Small & Large labels -----"+
+"\n \n  ** Folder organization needed **", 16); 
+Dialog.addMessage(
+"\n       ....\\Images (pre-processed)\\"+
+"\n                      ...*name_image*.tif"+
+"\n                      ..."+
+"\n       ....\\Small_Masks\\"+
 "\n                      ....*name image*_cp_masks.tif"+
-"\n       ....\\Large_Masks\\    (Subfolder)"+
-"\n                      ....*name_image*_(RES_)cp_masks.tif");
-Dialog.addMessage("Click OK to select the ROOT FOLDER", 14);
+"\n                      ..."+
+"\n       ....\\Large_Masks\\"+
+"\n                      ....*name_image*_(RES_)cp_masks.tif"+
+"\n                      ...");
+Dialog.addMessage("Click OK to select FOLDERS", 14);
 Dialog.addHelp(html);
 Dialog.show(); 
 
