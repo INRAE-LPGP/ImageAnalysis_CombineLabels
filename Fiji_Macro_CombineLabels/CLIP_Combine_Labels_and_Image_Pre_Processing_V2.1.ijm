@@ -1012,7 +1012,7 @@ print("...[ Image Resolution ]..." + "\t " + width + "\t " + "x " + height + "\t
 // **** Labeling the ouput image label filtered
 print("...[ Labelling ]");
 				open(output + NameImage + "_Small&Filtred.tif");	
-		 	  	run("Connected Components Labeling", "connectivity=6 type=[16 bits]");
+		 	  	run("Connected Components Labeling", "connectivity=6 type=float");
    				run("glasbey on dark");
 				saveAs("Tiff", output + NameImage + "_Filtered.tif");
 				File.delete(output + NameImage + "_Small&Filtred.tif");
@@ -2715,14 +2715,14 @@ print("...[ Segmentation & labeling ]");
 		Ext.CLIJx_seededWatershed(input, input, temp, threshold);
 		Ext.CLIJ2_release(input);
 		Ext.CLIJ2_pull(temp);
-		run("Connected Components Labeling", "connectivity=6 type=[16 bits]");
+		run("Connected Components Labeling", "connectivity=6 type=float");
 		run("glasbey on dark");
 	saveAs("Tiff", TEMP+"Result_seg.tif");
 	//saveAs("Tiff", RepResultat+"Result_seg.tif");	
 		Ext.CLIJ2_clear();
 		close("*");
 	open(TEMP+"Result_seg.tif");
-//		run("Connected Components Labeling", "connectivity=6 type=[16 bits]");
+//		run("Connected Components Labeling", "connectivity=6 type=float");
 //		run("glasbey on dark");
 }
 
