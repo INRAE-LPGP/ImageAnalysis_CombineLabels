@@ -3184,7 +3184,7 @@ print("...[ Segmentation ]");
 			selectWindow("Stack_Filtre_Conserve");			
 	   		Stack.setXUnit("um");
 			run("Properties...", "channels=1 slices=SizeZ frames=1 pixel_width=width pixel_height=height voxel_depth=depth");
-		rename(filename1 + "_cb_label_filtered.tif");
+		rename(filename1 + "_cp_masks.tif");
 			FileResult_tif=getTitle();
 			FileResult=replace(FileResult_tif, ".tif", "");
 	   		Stack.setXUnit("um");
