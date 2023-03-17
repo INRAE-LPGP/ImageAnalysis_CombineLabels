@@ -1,5 +1,5 @@
 // Macros CLIP Combine Labels and Images Pre Processing
-// V2.1 le 08-03-23 	(=> change the date Line 27 & version number Line 2330)
+// V2.1 le 03-17-23 	(=> change the date & version number Line 27, Line 2353 & Line 2830).
 // Written by Violette THERMES, Manon LESAGE - INRAE LPGP
 // Part of the DYNAMO project (ANR-18-CE20-0004, https://anr.fr/en/funded-projects-and-impact/funded-projects/project/funded/project/b2d9d3668f92a3b9fbbf7866072501ef-2c5a1e780e/?tx_anrprojects_funded%5Bcontroller%5D=Funded&cHash=6fb2d252383a716a3df2a09b4d76864c)
 
@@ -24,7 +24,7 @@
 //--------------------------------------------------------------------------------------
 //--------------------------------------------------------------------------------------
 // first release date: 11/13/2022
-// latest release date: 03/08/2023
+// latest release date: 03/17/2023
 //--------------------------------------------------------------------------------------
 //--------------------------------------------------------------------------------------
 
@@ -2827,7 +2827,7 @@ function About() {
 	
 	  Dialog.create("About");
 	  Dialog.addMessage("----- CLIP: Combine_Labels_and_Image_Pre_Processing -----", 16);
-	  Dialog.addMessage("-- Version: v2.0 (date of release: 01/19/2023)", 12);
+	  Dialog.addMessage("-- Version: v2.1 (date of release: 03/17/2023)", 12);
 	  Dialog.addMessage("\nThe pipeline is designed for utilization of pre-trained deep-learning model Cellpose for segmentation of 3D images of ovaries "+
 	  "\n(or round objects) without extensive annotation and training with specialized data."+
 	  "\n-----Pre-processing steps (CLIP_Image Menu) are developed for 3D image stacks to improve visualization and the segmentation process,"+
